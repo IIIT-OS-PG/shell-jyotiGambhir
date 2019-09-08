@@ -41,6 +41,45 @@ string getHostname()
 	return HOSTNAME;
 }
 
+string getPathname()
+{	FILE* fileStream;
+	//cout<<"reached";
+	string pathname="";
+	char buf[1000];
+	int fd;
+	char* token;
+	fileStream = fopen("/etc/manpath.config","r");
+	if(fileStream != NULL)
+	{	while(fgets(buf, 500, fileStream))
+		{	char val[20];	
+			token = strtok(buf,"\n\t\r");
+			strcpy(val,token);
+			if(strcmp(val,"MANPATH_MAP")==0)
+			{
+				//while(token != NULL)
+				//{	//cout<<"token"<<token<<endl;
+					token=strtok(NULL,"\n\t\r");
+					//token=strtok(NULL,"\n\t\r");
+					strcpy(val,token);
+					//cout<<"Token--"<<val;
+					pathname += (string)val+":";
+					
+					//count++;
+					//cout<<"token--"<<token<<endl;
+				//}
+			}
+		}
+		fclose(fileStream);
+	}
+	else
+	{
+		cout<<"Error in opening /etc/manpath.config"<<endl;
+		exit(1);
+	}
+	mapEnv.insert({"PATH",pathname});
+	return pathname;
+}
+
 void createBashrc()
 {	FILE *fd;
 	fd = fopen("bashrc1","w");
@@ -55,13 +94,42 @@ void createBashrc()
 	fprintf(fd,"HOME=%s\n", (char*)getHomeDir().c_str());
 	fprintf(fd,"USER=%s\n", (char*)getUserId().c_str());
 	fprintf(fd,"HOSTNAME=%s\n", (char*)getHostname().c_str());
+	fprintf(fd, "PATH=%s\n", (char*)getPathname().c_str() );
 	fprintf(fd, "PS1=%s\n", "$");
 	mapEnv.insert({"PS1","$"});
-	fprintf(fd,"PATH=%s\n", "Path");
+	//fprintf(fd,"PATH=%s\n", "Path");
 	fclose(fd);
 }
 
-
+string createPrompt()
+{
+	char currDir[100];
+	getcwd(currDir,sizeof(currDir));
+	string dir=currDir;
+	char home[100];
+	string dd="";
+	int len = mapEnv["HOME"].length();
+	if(dir.length() < len)
+		dd="~";
+	else
+	{
+		string parsed = dir.substr(len,dir.length());
+		dd="~"+parsed;
+	}
+	string ps="";
+	if(strcmp(mapEnv["USER"].c_str(),"root") == 0 )
+	{
+		mapEnv["PS1"]="#";
+		ps="#";
+	}
+	else
+	{
+		mapEnv["PS1"]="$";
+		ps="$";
+	}
+	string prom=mapEnv["USER"]+"@"+mapEnv["HOSTNAME"]+":"+dd+ps;
+	return prom;
+}
 
 void takeInput();
 //#define MAX 2048
@@ -233,6 +301,39 @@ void executeCommand(char **argv)
 	}
 }
 
+string checkRedirectFile(char** argv)
+{
+	//int pos=-1;
+	string filename="";
+	for(int i=0; argv[i]!=NULL; i++)
+	{	
+		if(strcmp(argv[i],">")==0)
+			{	//cout<<"mil gya"<<endl;
+				//checkredirect=1;
+				//redirectOp=1;
+				//cout<<"aa";
+					//string m=argv[i+1];
+					//cout<<"file is "<<m<<"/n";
+				//pos=i;
+				filename=argv[i+1];
+				argv[i]=NULL;
+				return filename;
+					//cout<<"pos-- "<<pos;
+					//break;
+			}
+			if(strcmp(argv[i],">>")==0)
+			{	//checkredirect=1;
+				//redirectOp=2;
+				//pos=i;
+				filename=argv[i+1];
+				argv[i]=NULL;
+				return filename;
+			}
+		}
+		return filename;
+}
+
+
 void executePipe(char* comm)
 {	//cout<<"entered execute pipe"<<endl;
 	char* listCommands[1025];
@@ -245,11 +346,13 @@ void executePipe(char* comm)
 	
 	char command[100];
 	token = strtok(comm,"|");
+	//cout<<token<<endl;
 	while(token != NULL)
 	{	//cout<<"token"<<token<<endl;
 		listCommands[i++]=token;
 		token=strtok(NULL,"|");
 		count++;
+		//cout<<"token--"<<token<<endl;
 	}
 	int processed=0;
 	// for(int i=0; listCommands[i]!=NULL; i++)
@@ -282,21 +385,64 @@ void executePipe(char* comm)
    //        	string a="mn";
 			// argv[0]=(char*)a.c_str();
 			parseCommand(command, argv);
-			//cout<<"argv--"<<argv[0]<<endl;
-			//
-
-			if(processed+1 < count)
-				dup2(fd[1],1);
-			close(fd[0]);
-			// cout<<argv[0];
-			// for(int i=0; argv[i]!=NULL; i++)
-			// 	cout<<argv[i]<<endl;
-			// cout<<"args generated";
-			if(execvp(*argv,argv) < 0)
+			cout<<"processed--"<<processed;
+			for(int i =0 ; argv[i]!=NULL;i++)
 			{
-				cout<<"Execution failed"<<endl;
-				exit(1);
+			cout<<"argv--"<<i<<"---"<<argv[i]<<endl;
+			//cout<<"argv--"<<argv[1]<<endl;
 			}
+			int redirectOp=-1;
+			for(int i =0 ; argv[i]!=NULL;i++)
+			{	if(strcmp(argv[i],">") == 0)
+				{	redirectOp=1;
+					break;
+				}
+				if(strcmp(argv[i],">>") == 0)
+				{
+					redirectOp=2;
+					break;
+				}
+			}
+
+
+			
+			cout<<"returned from pipe check";
+			
+			if(processed+1 == count && redirectOp != -1)
+			{	cout<<"entered";
+				string fileOpen = checkRedirectFile(argv);
+				int fdd;
+				//for(int i=0; argv[])
+				//char* fileOpen=argv[checkredirect+1];
+				//cout<<"filename"<<
+				if(redirectOp == 1)
+					fdd=open(fileOpen.c_str(), O_WRONLY|O_CREAT|O_TRUNC , 0664);
+				else
+					fdd=open(fileOpen.c_str(), O_WRONLY|O_CREAT|O_APPEND , 0664);
+				if(fdd < 0)
+				{	cout<<"Error in opening file"<<endl;
+					exit(1);
+				}
+				dup2(fdd,1);
+				if( execvp(*argv,argv) < 0)
+				{
+					cout<<"Execution Failed"<<endl;
+					exit(1);
+				}
+				close(fd[0]);
+
+			}
+			else{
+					if(processed+1 < count)
+						dup2(fd[1],1);
+					close(fd[0]);
+			
+					if(execvp(*argv,argv) < 0)
+					{
+						cout<<"Execution failed"<<endl;
+						exit(1);
+					}
+				}
 		}
 		else
 		{
@@ -310,6 +456,53 @@ void executePipe(char* comm)
 	}
 }
 
+void executeChangeDir(char** argv)
+{
+	if(argv[1] == NULL || strcmp(argv[1],"~")==0) 
+	{
+		if(chdir(getHomeDir().c_str()) != 0 )
+		{
+			cout<<"Error in changing Directory"<<endl;
+			return;
+		}
+	}
+	else
+	{	string directoryName=argv[1];
+		if(directoryName[0] == '~')
+		{	
+			// if(strcmp(directoryName.c_str(),NULL) == 0)
+			// {	if(chdir(getHomeDir().c_str()) != 0 )
+			// 	{
+			// 		cout<<"Error in changing Directory"<<endl;
+			// 		return;
+			// 	}
+			// 	return;
+			// }
+			string directName=getHomeDir()+"/"+directoryName.substr(2,directoryName.length());
+			cout<<directName<<"directory";
+			if(chdir(directName.c_str()) != 0 )
+			{
+				cout<<"Error in changing Directory"<<endl;
+				return;
+			}
+
+		}
+		else
+		{	if(chdir(directoryName.c_str()) != 0 )
+			{
+				cout<<"Error in changing Directory"<<endl;
+				return;
+			}
+
+		}
+	}
+		
+}
+
+void executeEcho(char** argv)
+{	
+	
+}
 
 void takeInput()
 {	signal(SIGTSTP, tstp_handler);
@@ -349,13 +542,16 @@ void takeInput()
 			if(c == 127)
 			{	//cout<<"backspace";
 				//printf("buff %s",comm);
-				printf("\r                                     ");
+				printf("\r                                                                            ");
 				//printf("%c[2K", 100);
 				//printf("removed %c\n",comm[i-1]);
 				comm[i-1]='\0';
+				if(i>0)
 				i--;
 				//printf("after removal %c\n",comm[i]);
-				printf("\r%s",comm);
+				string st=createPrompt()+(char*)comm;
+				printf("\r%s",st.c_str());
+				continue;
 				//printf("buff after %s",comm);
 				// comm[i-1]='\0';
 				// printf("Hii");
@@ -363,7 +559,7 @@ void takeInput()
 			}
 			
 			 // if (c == 27) {
-    //         // "throw away" next two characters which specify escape sequence
+   //         // "throw away" next two characters which specify escape sequence
     //         c = getchar();
     //         c = getchar();
     //         continue;
@@ -436,24 +632,20 @@ void takeInput()
 		{	parseCommand(comm,argv);
 			if(strcmp(argv[0],"exit")==0)
 				exit(0);
-			
-			executeCommand(argv);
+			else if(strcmp(argv[0],"cd") == 0)
+				executeChangeDir(argv);
+			else if (strcmp(argv[0],"echo") == 0)
+				executeEcho(comm);
+			else 
+				executeCommand(argv);
 		}
-			//cout<<endl;
-		//cout<<*argv<<"vales"<<endl;
-		//cout<<*(argv+1)<<"vales"<<endl;	
-		// cout<<*(argv[2])<<"vales"<<endl;
-		// else
-		// {	
-
-		// }
-
-	//}
+		
 
 }
 
 int main()
-{	createBashrc();
+{ 	//cout<<getPathname();
+	createBashrc();
 	//cout<<geteuid()<<"EUID"<<endl;
 	// getHomeDir();
 	// getUserId();
@@ -461,12 +653,12 @@ int main()
 	
 	// //signal(SIGINT, int_handler);
 	while(1)
-	{	cout<<"$";
+	{	cout<<createPrompt();
 		fflush(stdout);
 		signal(SIGTSTP, tstp_handler);
 		if(signal(SIGTSTP, tstp_handler) == 0)
 		 	continue;
 		takeInput();
-	}
+ 	}
 	
 }
