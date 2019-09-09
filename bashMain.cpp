@@ -10,10 +10,132 @@
 #include <pwd.h>
 #include <fcntl.h>
 #include <map>
+#include <dirent.h>
 //#include "profile.h"
 using namespace std;
 
 map<string,string> mapEnv;
+int status=0;
+
+struct trieDir {
+	int val;
+	struct trieDir *child[128];
+};
+
+struct trieDir *createNewNode()
+{
+	struct trieDir *node = (struct trieDir*)malloc(sizeof(struct trieDir));
+	node->val=0;
+	for(int p=0; p<=127; p++)
+		node->child[p]=NULL;
+	return node;
+}
+
+struct trieDir* rootHist=createNewNode();
+void insertTrie(string dir, struct trieDir *root)
+{	struct trieDir *p = root;
+	int v;
+	int i=0;
+	//char arr[100];
+	// char* ag;
+	// ag=(char*)dir.c_str();
+	// strcpy(arr,ag);
+	// arr[dir.length()]='\0';
+	while(dir[i] != '\0')
+	{
+		//cout<<"aaya mai"<<endl;
+		v=dir[i];
+	
+	
+		if(p->child[v] != NULL)
+			p = p->child[v];
+		else
+		{
+			p->child[v]=createNewNode();
+			p=p->child[v];
+
+		}	
+		//p->val=0;
+		i++;
+	}
+	p->val=1;
+}
+
+// void printtrie(struct trieDir *root)
+// {
+// 	int index;
+// 	for(int i=0; i<128; i++)
+// 	{	struct trieDir *head=root;
+// 		index=i;
+// 		if(head->child[index] == NULL)
+// 		{
+// 			index=i;
+// 			char s=index;
+// 			cout<<endl;
+// 			head = head->child[index];
+// 		}
+
+// 	}
+
+// }
+
+string searchTrie(string dir, struct trieDir *root)
+{	int v;
+	string filename=dir;
+	struct trieDir *p=root;
+	for(int i=0; dir[i]!='\0'; i++)
+	{	//cout<<"traversed"<<dir[i]<<endl;	
+		v=dir[i];
+		//cout<<"v "<<v<<endl;
+		if(p->child[v] == NULL )
+		return NULL;
+		p=p->child[v];
+	}
+	int num=0;
+	//char ch;
+	// p=root;
+	while(p->val != 1)
+	{	int j;
+		num=0;
+		//cout<<"enterednext node"<<endl;
+		for(j=0; j<=127; j++)
+		{	
+			if(p->child[j] != NULL)
+				num++;
+		}
+				if(num>1)
+					return " " ;
+		for(j=0; j<=127; j++)
+		{	
+			if(p->child[j] != NULL){
+				filename += (char)j;
+				//cout<<"filename so far "<<filename<<endl;			
+				break;
+			}
+			
+		}
+		// 		cout<<(char)j;
+		// 		filename += (char)j;
+		// 	}.
+		// }
+		p=p->child[j];
+	}
+	//cout<<"filename in search"<<filename<<endl;
+	if(p->val == 1)
+	return filename;
+	else
+		return " ";
+}
+
+void createTrie(struct trieDir* root, string dirlist[],int j)
+{	
+	for(int i=0; i<j; i++)
+	{
+		insertTrie(dirlist[i],root);
+		//cout<<"inserted"<<dirlist[i]<<endl;
+	}
+	
+}
 
 string getHomeDir()
 {	
@@ -234,7 +356,7 @@ void parseCommand(char *comm, char** argv)
 void executeCommand(char **argv)
 {	//cout<<"Exe";
 	pid_t pid;
-	int status;
+	int st=0;
 	int redirect=0;
 	int i=0;
 	int fd;
@@ -297,7 +419,12 @@ void executeCommand(char **argv)
 
 	else 
 	{
-		while(wait(&status) != pid);
+		//while(wait(&status) != pid);
+		waitpid(pid, &st, 0);
+		if(WIFEXITED(st))
+		{
+			status=WEXITSTATUS(st);
+		}
 	}
 }
 
@@ -343,7 +470,7 @@ void executePipe(char* comm)
 	int fd[2];
 	int count=0;
 	int pid;
-	
+	int st=0;
 	char command[100];
 	token = strtok(comm,"|");
 	//cout<<token<<endl;
@@ -385,10 +512,10 @@ void executePipe(char* comm)
    //        	string a="mn";
 			// argv[0]=(char*)a.c_str();
 			parseCommand(command, argv);
-			cout<<"processed--"<<processed;
+			//cout<<"processed--"<<processed;
 			for(int i =0 ; argv[i]!=NULL;i++)
 			{
-			cout<<"argv--"<<i<<"---"<<argv[i]<<endl;
+			//cout<<"argv--"<<i<<"---"<<argv[i]<<endl;
 			//cout<<"argv--"<<argv[1]<<endl;
 			}
 			int redirectOp=-1;
@@ -406,10 +533,10 @@ void executePipe(char* comm)
 
 
 			
-			cout<<"returned from pipe check";
+			//cout<<"returned from pipe check";
 			
 			if(processed+1 == count && redirectOp != -1)
-			{	cout<<"entered";
+			{	//cout<<"entered";
 				string fileOpen = checkRedirectFile(argv);
 				int fdd;
 				//for(int i=0; argv[])
@@ -446,7 +573,12 @@ void executePipe(char* comm)
 		}
 		else
 		{
-			wait(NULL);
+			//wait(NULL);
+			waitpid(pid, &st, 0);
+			if(WIFEXITED(st))
+			{
+				status=WEXITSTATUS(st);
+			}
 			close(fd[1]);
 			inputfd=fd[0];
 			processed++;
@@ -456,14 +588,35 @@ void executePipe(char* comm)
 	}
 }
 
-void executeChangeDir(char** argv)
+void executeChangeDir(char** argv, struct trieDir* root)
 {
 	if(argv[1] == NULL || strcmp(argv[1],"~")==0) 
 	{
 		if(chdir(getHomeDir().c_str()) != 0 )
 		{
 			cout<<"Error in changing Directory"<<endl;
+			status=127;
 			return;
+		}
+		else
+		{	char currentDir[100];
+			struct dirent* dir;
+			string dirlist[2048];
+			int m=0;
+			getcwd(currentDir,sizeof(currentDir));
+			//cout<<currentDir;
+			DIR* dd=opendir(currentDir);
+			if(dd)
+			{
+				while((dir=readdir(dd)) != NULL)
+				{	//cout<<"dirname "<<dir->d_name;
+					dirlist[m++]=dir->d_name;
+				}
+			}
+			closedir(dd);
+
+			struct trieDir* root=createNewNode();
+			createTrie(root,dirlist,m);
 		}
 	}
 	else
@@ -483,7 +636,29 @@ void executeChangeDir(char** argv)
 			if(chdir(directName.c_str()) != 0 )
 			{
 				cout<<"Error in changing Directory"<<endl;
+				status=127;
 				return;
+			}
+			else
+			{	char currentDir[100];
+				struct dirent* dir;
+				string dirlist[2048];
+				int m=0;
+				getcwd(currentDir,sizeof(currentDir));
+			//cout<<currentDir;
+				DIR* dd=opendir(currentDir);
+				if(dd)
+				{
+					while((dir=readdir(dd)) != NULL)
+					{	//cout<<"dirname "<<dir->d_name;
+						dirlist[m++]=dir->d_name;
+					}
+				}
+				closedir(dd);
+
+				struct trieDir* root=createNewNode();
+				createTrie(root,dirlist,m);
+
 			}
 
 		}
@@ -491,7 +666,29 @@ void executeChangeDir(char** argv)
 		{	if(chdir(directoryName.c_str()) != 0 )
 			{
 				cout<<"Error in changing Directory"<<endl;
+				status=127;
 				return;
+			}
+			else
+			{
+				char currentDir[100];
+				struct dirent* dir;
+				string dirlist[2048];
+				int m=0;
+				getcwd(currentDir,sizeof(currentDir));
+			//cout<<currentDir;
+				DIR* dd=opendir(currentDir);
+				if(dd)
+				{
+					while((dir=readdir(dd)) != NULL)
+					{	//cout<<"dirname "<<dir->d_name;
+						dirlist[m++]=dir->d_name;
+					}
+				}
+				closedir(dd);
+
+				struct trieDir* root=createNewNode();
+				createTrie(root,dirlist,m);
 			}
 
 		}
@@ -499,17 +696,130 @@ void executeChangeDir(char** argv)
 		
 }
 
-void executeEcho(char** argv)
-{	
-	
+void executeEcho(char* comm)
+{	char* token;
+	char* token2;
+	char com[100];
+	char* argv[100];
+	strcpy(com,comm);
+	// cout<<"comm "<<comm<<endl;
+	// cout<<"com "<<com<<endl;
+	token = strtok(com," ");
+	// cout<<"token--"<<token<<endl;
+	// cout<<"com1 "<<com<<endl;
+	token2 = strtok(NULL,"\n");
+	//cout<<"token--"<<token2;
+	parseCommand(token2,argv);
+	if(strcmp(argv[0],"$$") == 0)
+	{
+		cout<<getpid()<<endl;
+		status=1;
+		return;
+	}
+	if(strcmp(argv[0],"$?") == 0)
+	{
+		cout<<status<<endl;
+		status=1;
+		return;
+	}
+	for(int i=0; argv[i]!=NULL; i++)
+	{ 	//cout<<"argv--"<<argv[i]<<endl;
+		if(argv[i][0]=='$')
+		{	char gg[100];
+			strcpy(gg,argv[i]);
+			string val=gg;
+			string v=val.substr(1,val.length());
+			//gg = v.c_str();
+			//cout<<mapEnv[v];
+			argv[i]=(char*)mapEnv[v].c_str();
+		}
+	}
+	for(int i=0; argv[i]!=NULL; i++)
+		cout<<argv[i]<<" ";
+	status=1;
+	cout<<endl;
+	return;
 }
 
-void takeInput()
+void executeOpen(char** argv)
+{	FILE *fd;
+	char line[100];
+	int pid;
+	int st;
+	fd = fopen("bashrc1","a+");
+	if(fd == NULL)
+	{
+		cout<<"Error in opening";
+		exit(1);
+	}
+	
+	fprintf(fd,"mp4=%s\n", "/usr/bin/vlc");
+	fprintf(fd,"mp3=%s\n", "/usr/bin/vlc");
+	fprintf(fd,"pdf=%s\n", "/usr/bin/okular");
+	fprintf(fd, "txt=%s\n", "/usr/bin/subl");
+	fprintf(fd, "cpp=%s\n", "/usr/bin/subl");
+	fclose(fd);
+	char filename[100];
+	strcpy(filename,argv[1]);
+	string location="/home/jyoti/Desktop/os/"+(string)filename;
+	char* filen = strtok(filename,".");
+	char* ext = strtok(NULL, ".");
+
+	fd= fopen("bashrc1","r");
+	if(fd==NULL)
+	{
+		cout<<"error in opening file";
+		exit(1);
+	}
+	char* token;
+	char* token2;
+	char* path;
+	while(fgets(line,sizeof(line),fd))
+	{
+		token = strtok(line,"=");
+		token2 = strtok(NULL,"\n");
+		if(strcmp(token,ext) == 0)
+		{
+			path=token2;
+			break;
+		}
+	}
+	char execPath[100];
+	strcpy(execPath,path);
+	fclose(fd);
+	if((pid=fork()) < 0)
+	{
+		cout<<"Error while creating child process";
+		exit(1);
+	}
+	else if(pid == 0)
+	{
+		if(execl(execPath,"xdg-open",location.c_str(),(char*)0) < 0)
+		{
+			cout<<"Exec Failed";
+			exit(1);
+		}
+	}
+	else
+	{
+		waitpid(pid, &st, 0);
+		if(WIFEXITED(st))
+		{
+			status=WEXITSTATUS(st);
+		}
+
+	}
+}
+
+void takeInput(struct trieDir* root)
 {	signal(SIGTSTP, tstp_handler);
 	if(signal(SIGTSTP, tstp_handler) == 0)
 		 	return;
 	char comm[64];
 	char* argv[64];
+	char* token;
+	char* token2;
+	string dirName; 
 	//cout<<"entered input"<<endl;
 	// while(1)
 	// {	//cout<<"$";
@@ -557,15 +867,65 @@ void takeInput()
 				// printf("Hii");
 				//printf("%s",comm);
 			}
-			
-			 // if (c == 27) {
+			if(c==9)
+			{	//cout<<"detected";		
+				comm[i]='\0';
+				token= strtok(comm," ");
+				token2= strtok(NULL,"\0");
+				//cout<<"token"<<token;
+				//cout<<"dir"<<token2;
+				char compart[20];
+				char dirpart[30];
+				strcpy(dirpart,token2);
+				strcpy(compart,token);
+				dirName=searchTrie((string)dirpart, root);
+				//change buffer
+				//cout<<"dir name"<<dirName;
+				string finalbuff = (string)compart+" "+dirName;
+				i=finalbuff.length();
+				char* hh=(char*)finalbuff.c_str();
+				strcpy(comm,hh);
+				printf("\r                                                                                         ");
+				//cout<<"buffer is "<<comm<<endl;
+				string st=createPrompt()+(char*)comm;
+				printf("\r%s",st.c_str());
+				continue;
+			}
    //         // "throw away" next two characters which specify escape sequence
     //         c = getchar();
     //         c = getchar();
     //         continue;
     //     	}
-			 // if (c == 0x7f) {
-    //         // go one char left
+			// if (c== 18)
+			// {
+
+			// 	comm[i]='\0';
+				
+			// 	//cout<<"token"<<token;
+			// 	//cout<<"dir"<<token2;
+			// 	// char compart[20];
+			// 	// char dirpart[30];
+			// 	// strcpy(dirpart,token2);
+			// 	// strcpy(compart,token);
+			// 	//cout<<"comm"<<comm<<endl;
+			// 	string commandName=searchTrie((string)comm, rootHist);
+			// 	//change buffer
+			// 	//cout<<"dir name"<<dirName;
+			// 	//string finalbuff = (string)compart+" "+dirName;
+			// 	//i=finalbuff.length();
+			// 	//char* hh=(char*)finalbuff.c_str();
+			// 	//strcpy(comm,hh);
+			// 	//printf("\r                                                                                         ");
+			// 	//cout<<"buffer is "<<comm<<endl;
+			// 	/*string st=createPrompt()+commandName;*/
+			// 	/*cout<<commandName<<"command";*/
+			// 	//printf("\r%s",st.c_str());
+			// 	/*strcpy(comm,commandName.c_str());
+			// 	i=commandName.length();*/
+			// 	continue;
+
+			// }
+   //  //         // go one char left
     //         printf("\b");
     //         // overwrite the char with whitespace
     //         printf(" ");
@@ -617,6 +977,21 @@ void takeInput()
 			}
 		}
 		comm[i]='\0';
+		string comcopy = comm;
+		FILE *fdx;
+		fdx = fopen("history","a+");
+		if(fdx == NULL)
+		{
+			perror("Error in opening");
+			exit(1);
+		}
+	
+		fprintf(fdx,"%s\n", comm);
+		insertTrie(comcopy,rootHist);
+		fclose(fdx);
+
+		
+
 		// for(int j=0; j<=i; j++)
 		// 	cout<<"val "<<comm[j]<<endl;
 			//printf("%s in buff",comm);												
@@ -624,7 +999,7 @@ void takeInput()
 		//cout<<comm;
 		//if( parseCommand(line,argv) == " ")
 		if(checkPipe==1)
-		{	cout<<"Pipe present"<<endl;
+		{	//cout<<"Pipe present"<<endl;
 			executePipe(comm);		
 		}	
 
@@ -633,9 +1008,25 @@ void takeInput()
 			if(strcmp(argv[0],"exit")==0)
 				exit(0);
 			else if(strcmp(argv[0],"cd") == 0)
-				executeChangeDir(argv);
+				executeChangeDir(argv,root);
 			else if (strcmp(argv[0],"echo") == 0)
-				executeEcho(comm);
+				executeEcho((char*)comcopy.c_str());
+			else if(strcmp(argv[0],"open") == 0)
+				executeOpen(argv);
+			else if(strcmp(argv[0],"history")==0)
+			{	FILE* fileStream;
+				char buf[1000];
+				//int fd;
+	
+				fileStream = fopen("history","r");
+				if(fileStream != NULL)
+				{	while(fgets(buf, 500, fileStream))
+					{
+						cout<<buf;
+					}
+				}
+				//fclose(fd);
+			}
 			else 
 				executeCommand(argv);
 		}
@@ -643,14 +1034,39 @@ void takeInput()
 
 }
 
+
+
 int main()
 { 	//cout<<getPathname();
 	createBashrc();
 	//cout<<geteuid()<<"EUID"<<endl;
 	// getHomeDir();
 	// getUserId();
+
 	enableRawInputMode();
-	
+	char currentDir[100];
+	struct dirent* dir;
+	string dirlist[2048];
+	int m=0;
+	getcwd(currentDir,sizeof(currentDir));
+	//cout<<currentDir;
+	DIR* dd=opendir(currentDir);
+	if(dd)
+	{
+		while((dir=readdir(dd)) != NULL)
+		{	//cout<<"dirname "<<dir->d_name;
+			dirlist[m++]=dir->d_name;
+		}
+	}
+	closedir(dd);
+
+	struct trieDir* root=createNewNode();
+	createTrie(root,dirlist,m);
+	//searchTrie("process_fi",root);
+	//string word = searchTrie("process_fi",root);
+	// cout<<endl;
+	// cout<<"word = "<<word<<endl;
+	//printtrie(root);
 	// //signal(SIGINT, int_handler);
 	while(1)
 	{	cout<<createPrompt();
@@ -658,7 +1074,7 @@ int main()
 		signal(SIGTSTP, tstp_handler);
 		if(signal(SIGTSTP, tstp_handler) == 0)
 		 	continue;
-		takeInput();
+		takeInput(root);
  	}
 	
 }
